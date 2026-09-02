@@ -1,0 +1,61 @@
+services:
+  db:
+    image: mysql:8.4
+    container_name: healthyliving-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-healthy_living}
+      MYSQL_USER: ${DB_USERNAME:-healthy}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in .env}
+      TZ: UTC
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - healthyliving
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    # Uncomment only if you need to reach MySQL from outside the server.
+    # Binding to 127.0.0.1 keeps it off the public interface.
+    # ports:
+    #   - "127.0.0.1:3306:3306"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: workeatoutapi:latest
+    container_name: healthyliving-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${DB_NAME:-healthy_living}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-healthy}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${JPA_DDL_AUTO:-update}
+      SPRING_JPA_SHOW_SQL: "false"
+      SERVER_PORT: "8089"
+      TZ: UTC
+    ports:
+      - "${API_PORT:-8089}:8089"
+    networks:
+      - healthyliving
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8089"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+volumes:
+  db-data:
+
+networks:
+  healthyliving:
+    driver: bridge
