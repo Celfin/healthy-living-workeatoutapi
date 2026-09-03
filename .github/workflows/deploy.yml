@@ -12,7 +12,7 @@ concurrency:
 env:
   # Absolute path to the checked-out repo on the VPS.
   # The repo must already be cloned there and contain a .env file.
-  DEPLOY_PATH: /opt/workeatoutapi
+  DEPLOY_PATH: /opt/workeatoutapi/healthy-living-workeatoutapi
   # Branch the VPS should check out (the one that triggered this run)
   BRANCH: ${{ github.ref_name }}
 
