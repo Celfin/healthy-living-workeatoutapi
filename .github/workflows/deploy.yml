@@ -1,0 +1,77 @@
+name: Build & Deploy to VPS
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Absolute path to the checked-out repo on the VPS.
+  # The repo must already be cloned there and contain a .env file.
+  DEPLOY_PATH: /opt/workeatoutapi
+  # Branch the VPS should check out (the one that triggered this run)
+  BRANCH: ${{ github.ref_name }}
+
+jobs:
+  build:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn -B verify
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: workeatoutapi-jar
+          path: target/*.jar
+          retention-days: 7
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy via SSH
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull latest code and restart containers
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script_stop: true
+          command_timeout: 20m
+          envs: DEPLOY_PATH,BRANCH
+          script: |
+            set -e
+            cd "$DEPLOY_PATH"
+
+            echo "==> Fetching latest code"
+            git fetch --all --prune
+            git reset --hard "origin/$BRANCH"
+
+            echo "==> Verifying .env is present"
+            test -f .env || { echo "ERROR: .env missing in $DEPLOY_PATH"; exit 1; }
+
+            echo "==> Rebuilding and restarting"
+            docker compose up -d --build --remove-orphans
+
+            echo "==> Pruning old images"
+            docker image prune -f
+
+            echo "==> Status"
+            docker compose ps
